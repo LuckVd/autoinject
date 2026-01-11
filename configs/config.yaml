@@ -1,0 +1,76 @@
+# IAST Agent Auto Inject 配置文件
+
+version: "1.0"
+
+# 调试模式
+debug: false
+
+# 日志配置
+log:
+  level: "info"           # debug, info, warn, error
+  format: "console"       # console, json
+  output: "/var/log/iast-auto-inject.log"
+  max_size: 100           # MB
+  max_backups: 3
+  max_age: 28             # days
+  compress: true
+
+# Agent 配置列表
+agents:
+  - name: "iast-agent"
+    path: "/opt/iast/agent/iast-agent.jar"
+    options: "listenerPort=8080,appName=myapp"
+    enabled: true
+    priority: 100
+
+  - name: "skywalking-agent"
+    path: "/opt/skywalking/agent/skywalking-agent.jar"
+    options: ""
+    enabled: false
+    priority: 90
+
+# 进程配置
+process:
+  # 扫描间隔（仅守护进程模式）
+  scan_interval: 30s
+
+  # 进程包含模式（正则表达式）
+  include_pattern:
+    - ".*"
+
+  # 用户过滤器
+  user_filter: []
+
+  # 自动重启进程
+  auto_restart: true
+
+# 守护进程配置
+daemon:
+  enabled: false
+  interval: 60s
+  log_level: "info"
+  pid_file: "/var/run/iast-auto-inject.pid"
+
+# 排除规则
+exclude:
+  - name: "system-processes"
+    pids: []
+    patterns:
+      - ".*kafka.*"
+      - ".*zookeeper.*"
+    users:
+      - "root"
+
+# 重启配置
+restart:
+  grace_period: 10s       # 优雅关闭等待时间
+  kill_timeout: 30s       # 强制杀死超时
+  max_retries: 3          # 最大重试次数
+  verify_wait: 5s         # 验证等待时间
+
+# 安全配置
+security:
+  check_permissions: true
+  allowed_users: []
+  allowed_groups: []
+  require_confirmation: true

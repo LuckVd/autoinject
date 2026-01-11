@@ -1,0 +1,33 @@
+# 编译输出
+/build/
+/dist/
+*.exe
+iast-auto-inject
+
+# Go 测试文件
+*.test
+*.out
+coverage.txt
+
+# 依赖
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# 日志文件
+*.log
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+*~
