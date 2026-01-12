@@ -36,6 +36,12 @@ type JavaProcess struct {
 	Agents     []Agent   `json:"agents"`
 	MainClass  string    `json:"main_class"`
 	JarFile    string    `json:"jar_file"`
+	// 进程元数据
+	MemoryRSS  uint64    `json:"memory_rss"`    // 驻留内存大小 (bytes)
+	MemoryVMS  uint64    `json:"memory_vms"`    // 虚拟内存大小 (bytes)
+	CPUPercent float64   `json:"cpu_percent"`   // CPU 使用率
+	Threads    int       `json:"threads"`       // 线程数
+	OpenFDs    int       `json:"open_fds"`      // 打开的文件描述符数量
 }
 
 // ProcessFilter 进程过滤器
@@ -124,16 +130,21 @@ func (d *Detector) isJavaProcess(proc *procfs.Process) bool {
 // parseJavaProcess 解析 Java 进程信息
 func (d *Detector) parseJavaProcess(proc *procfs.Process) *JavaProcess {
 	javaProc := &JavaProcess{
-		PID:      proc.PID,
-		Name:     proc.Name,
-		User:     proc.User,
-		UID:      proc.UID,
-		CmdLine:  proc.CmdLine,
-		Envs:     proc.Envs,
-		StartTime: proc.StartTime.Format("2006-01-02 15:04:05"),
-		Cwd:      proc.Cwd,
-		ExecPath: proc.ExecPath,
-		Agents:   d.extractAgents(proc.CmdLine),
+		PID:        proc.PID,
+		Name:       proc.Name,
+		User:       proc.User,
+		UID:        proc.UID,
+		CmdLine:    proc.CmdLine,
+		Envs:       proc.Envs,
+		StartTime:  proc.StartTime.Format("2006-01-02 15:04:05"),
+		Cwd:        proc.Cwd,
+		ExecPath:   proc.ExecPath,
+		Agents:     d.extractAgents(proc.CmdLine),
+		MemoryRSS:  proc.MemoryRSS,
+		MemoryVMS:  proc.MemoryVMS,
+		CPUPercent: proc.CPUPercent,
+		Threads:    proc.Threads,
+		OpenFDs:    proc.OpenFDs,
 	}
 
 	// 解析主类或 JAR 文件
@@ -150,7 +161,7 @@ func (d *Detector) parseJavaProcess(proc *procfs.Process) *JavaProcess {
 	return javaProc
 }
 
-// extractAgents 从命令行中提取 Agent 信息
+// extractAgents 从命令行中提取 Agent 信息（仅检测 SecPoint.jar）
 func (d *Detector) extractAgents(cmdline []string) []Agent {
 	var agents []Agent
 
@@ -159,7 +170,8 @@ func (d *Detector) extractAgents(cmdline []string) []Agent {
 		if strings.HasPrefix(arg, "-javaagent:") || strings.HasPrefix(arg, "-javaagent=") {
 			// 提取路径和选项
 			agent := parseAgentParam(arg)
-			if agent != nil {
+			// 只添加 SecPoint.jar 相关的 Agent
+			if agent != nil && strings.Contains(agent.Path, "SecPoint.jar") {
 				agents = append(agents, *agent)
 			}
 		}
@@ -195,8 +207,13 @@ func parseAgentParam(arg string) *Agent {
 	}
 }
 
-// HasAgent 检查进程是否已附加指定 Agent
+// HasAgent 检查进程是否已附加指定 Agent（仅支持 SecPoint.jar）
 func (d *Detector) HasAgent(javaProc *JavaProcess, agentPath string) bool {
+	// 只检查 SecPoint.jar
+	if !strings.Contains(agentPath, "SecPoint.jar") {
+		return false
+	}
+
 	// 规范化路径
 	normalizedPath := filepath.Clean(agentPath)
 
@@ -207,6 +224,11 @@ func (d *Detector) HasAgent(javaProc *JavaProcess, agentPath string) bool {
 	}
 
 	return false
+}
+
+// HasSecPointAgent 检查进程是否已附加 SecPoint Agent
+func (d *Detector) HasSecPointAgent(javaProc *JavaProcess) bool {
+	return len(javaProc.Agents) > 0
 }
 
 // matchFilter 检查进程是否匹配过滤条件

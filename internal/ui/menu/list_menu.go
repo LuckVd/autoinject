@@ -37,8 +37,8 @@ func (m *Menu) showProcessListMenu() {
 
 	// 显示进程列表
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PID\tUser\tMain Class/JAR\t\tAgent Status")
-	fmt.Fprintln(w, "---\t----\t-------------\t\t------------")
+	fmt.Fprintln(w, "PID\tUser\tMemory\tCPU%\tThreads\tFDs\tMain Class/JAR\t\tAgent")
+	fmt.Fprintln(w, "---\t----\t------\t-----\t-------\t---\t-------------\t\t-----")
 
 	green := color.New(color.FgGreen).SprintFunc()
 	red := color.New(color.FgRed).SprintFunc()
@@ -46,21 +46,25 @@ func (m *Menu) showProcessListMenu() {
 	for _, proc := range procs {
 		var agentStatus string
 		if len(proc.Agents) > 0 {
-			agentStatus = green(fmt.Sprintf("✓ %d 个 Agent", len(proc.Agents)))
+			agentStatus = green("✓")
 		} else {
-			agentStatus = red("✗ 无")
+			agentStatus = red("✗")
 		}
 
 		main := proc.MainClass
 		if proc.JarFile != "" {
 			main = proc.JarFile
 		}
-		if len(main) > 30 {
-			main = main[:27] + "..."
+		if len(main) > 25 {
+			main = main[:22] + "..."
 		}
 
-		fmt.Fprintf(w, "%d\t%s\t%s\t\t%s\n",
-			proc.PID, proc.User, main, agentStatus)
+		// 格式化内存
+		memStr := formatMemory(proc.MemoryRSS)
+
+		fmt.Fprintf(w, "%d\t%s\t%s\t%.1f\t%d\t%d\t%s\t\t%s\n",
+			proc.PID, proc.User, memStr, proc.CPUPercent,
+			proc.Threads, proc.OpenFDs, main, agentStatus)
 	}
 
 	w.Flush()
@@ -69,13 +73,33 @@ func (m *Menu) showProcessListMenu() {
 	m.pause()
 }
 
+// formatMemory 格式化内存大小
+func formatMemory(bytes uint64) string {
+	const (
+		KB = 1024
+		MB = 1024 * KB
+		GB = 1024 * MB
+	)
+
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.1fG", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.1fM", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.1fK", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
+}
+
 // showInjectedProcesses 显示已注入进程
 func (m *Menu) showInjectedProcesses() {
 	m.clearScreen()
 	m.printHeader()
 
 	fmt.Println()
-	color.Cyan("                    已注入 Agent 的进程")
+	color.Cyan("                    已注入 SecPoint Agent 的进程")
 	fmt.Println()
 
 	ctx := context.Background()
@@ -94,14 +118,14 @@ func (m *Menu) showInjectedProcesses() {
 	}
 
 	if len(injectedProcs) == 0 {
-		color.Yellow("没有已注入 Agent 的进程")
+		color.Yellow("没有已注入 SecPoint Agent 的进程")
 		m.pause()
 		return
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PID\tUser\tMain Class/JAR\t\tAgents")
-	fmt.Fprintln(w, "---\t----\t-------------\t\t------")
+	fmt.Fprintln(w, "PID\tUser\tMemory\tCPU%\tThreads\tFDs\tMain Class/JAR\t\tAgent Path")
+	fmt.Fprintln(w, "---\t----\t------\t-----\t-------\t---\t-------------\t\t----------")
 
 	for _, proc := range injectedProcs {
 		main := proc.MainClass
@@ -119,12 +143,16 @@ func (m *Menu) showInjectedProcesses() {
 			}
 			agents += agent.Path
 		}
-		if len(agents) > 40 {
-			agents = agents[:37] + "..."
+		if len(agents) > 35 {
+			agents = agents[:32] + "..."
 		}
 
-		fmt.Fprintf(w, "%d\t%s\t%s\t\t%s\n",
-			proc.PID, proc.User, main, agents)
+		// 格式化内存
+		memStr := formatMemory(proc.MemoryRSS)
+
+		fmt.Fprintf(w, "%d\t%s\t%s\t%.1f\t%d\t%d\t%s\t\t%s\n",
+			proc.PID, proc.User, memStr, proc.CPUPercent,
+			proc.Threads, proc.OpenFDs, main, agents)
 	}
 
 	w.Flush()

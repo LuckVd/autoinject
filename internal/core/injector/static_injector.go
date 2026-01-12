@@ -43,16 +43,22 @@ func NewStaticInjector(cfg *config.Config, det *detector.Detector, mgr *process.
 	}
 }
 
-// Inject 向指定进程注入 Agent
-func (s *StaticInjector) Inject(ctx context.Context, javaProc *detector.JavaProcess, agents []detector.Agent) (*InjectResult, error) {
-	logger.Info("Injecting agent",
+// Inject 向指定进程注入 SecPoint Agent
+func (s *StaticInjector) Inject(ctx context.Context, javaProc *detector.JavaProcess, secPointPath string) (*InjectResult, error) {
+	logger.Info("Injecting SecPoint agent",
 		zap.Int("pid", javaProc.PID),
-		zap.Int("agents", len(agents)))
+		zap.String("agent_path", secPointPath))
 
 	result := &InjectResult{
 		PID:        javaProc.PID,
 		OldCmdLine: javaProc.CmdLine,
 		OldAgents:  javaProc.Agents,
+	}
+
+	// 检查是否已经有 SecPoint.jar
+	if s.detector.HasSecPointAgent(javaProc) {
+		result.Message = "SecPoint agent already attached"
+		return result, nil
 	}
 
 	// 检查权限
@@ -62,8 +68,13 @@ func (s *StaticInjector) Inject(ctx context.Context, javaProc *detector.JavaProc
 		return result, err
 	}
 
+	// 构建 SecPoint agent 参数
+	agent := detector.Agent{
+		Path: secPointPath,
+	}
+
 	// 构建新的命令行
-	newCmdLine := s.buildNewCmdLine(javaProc.CmdLine, agents)
+	newCmdLine := s.buildNewCmdLine(javaProc.CmdLine, []detector.Agent{agent})
 	result.NewCmdLine = newCmdLine
 
 	// 重启进程
@@ -83,23 +94,22 @@ func (s *StaticInjector) Inject(ctx context.Context, javaProc *detector.JavaProc
 
 	result.NewPID = newPid
 	result.Success = true
-	result.Message = fmt.Sprintf("Successfully injected agent and restarted process (new PID: %d)", newPid)
+	result.Message = fmt.Sprintf("Successfully injected SecPoint agent and restarted process (new PID: %d)", newPid)
 
 	// 获取新进程的 Agent 状态
 	if procInfo, err := s.detector.DiscoverJavaProcesses(ctx, &detector.ProcessFilter{PIDs: []int{newPid}}); err == nil && len(procInfo) > 0 {
 		result.NewAgents = procInfo[0].Agents
 	}
 
-	logger.Info("Agent injected successfully",
+	logger.Info("SecPoint agent injected successfully",
 		zap.Int("old_pid", javaProc.PID),
-		zap.Int("new_pid", newPid),
-		zap.Int("agents", len(agents)))
+		zap.Int("new_pid", newPid))
 
 	return result, nil
 }
 
 // BatchInject 批量注入多个进程
-func (s *StaticInjector) BatchInject(ctx context.Context, javaProcs []*detector.JavaProcess, agents []detector.Agent) []*InjectResult {
+func (s *StaticInjector) BatchInject(ctx context.Context, javaProcs []*detector.JavaProcess, secPointPath string) []*InjectResult {
 	results := make([]*InjectResult, 0, len(javaProcs))
 
 	for _, javaProc := range javaProcs {
@@ -110,9 +120,9 @@ func (s *StaticInjector) BatchInject(ctx context.Context, javaProcs []*detector.
 		default:
 		}
 
-		result, err := s.Inject(ctx, javaProc, agents)
+		result, err := s.Inject(ctx, javaProc, secPointPath)
 		if err != nil {
-			logger.Error("Failed to inject agent",
+			logger.Error("Failed to inject SecPoint agent",
 				zap.Int("pid", javaProc.PID),
 				zap.Error(err))
 		}
@@ -163,40 +173,19 @@ func (s *StaticInjector) buildAgentParam(agent detector.Agent) string {
 	return fmt.Sprintf("-javaagent:%s", agent.Path)
 }
 
-// GetAgentsFromConfig 从配置中获取启用的 Agent
-func (s *StaticInjector) GetAgentsFromConfig() []detector.Agent {
-	enabledAgents := s.config.GetEnabledAgents()
-	agents := make([]detector.Agent, 0, len(enabledAgents))
-
-	for _, cfg := range enabledAgents {
-		agents = append(agents, detector.Agent{
-			Path:    cfg.Path,
-			Options: cfg.Options,
-		})
-	}
-
-	return agents
-}
-
-// NeedsInject 检查进程是否需要注入
-func (s *StaticInjector) NeedsInject(javaProc *detector.JavaProcess, agents []detector.Agent) bool {
+// NeedsInject 检查进程是否需要注入 SecPoint Agent
+func (s *StaticInjector) NeedsInject(javaProc *detector.JavaProcess) bool {
 	// 检查是否在排除列表中
 	if s.detector.IsExcluded(javaProc) {
 		return false
 	}
 
-	// 检查是否已经有所有需要的 agent
-	for _, agent := range agents {
-		if !s.detector.HasAgent(javaProc, agent.Path) {
-			return true
-		}
-	}
-
-	return false
+	// 检查是否已经有 SecPoint agent
+	return !s.detector.HasSecPointAgent(javaProc)
 }
 
 // Validate 验证注入结果
-func (s *StaticInjector) Validate(ctx context.Context, pid int, expectedAgents []detector.Agent) error {
+func (s *StaticInjector) Validate(ctx context.Context, pid int) error {
 	procs, err := s.detector.DiscoverJavaProcesses(ctx, &detector.ProcessFilter{PIDs: []int{pid}})
 	if err != nil {
 		return fmt.Errorf("failed to discover process: %w", err)
@@ -208,11 +197,9 @@ func (s *StaticInjector) Validate(ctx context.Context, pid int, expectedAgents [
 
 	javaProc := procs[0]
 
-	// 检查是否已附加所有 agent
-	for _, agent := range expectedAgents {
-		if !s.detector.HasAgent(javaProc, agent.Path) {
-			return fmt.Errorf("agent not found: %s", agent.Path)
-		}
+	// 检查是否已附加 SecPoint agent
+	if !s.detector.HasSecPointAgent(javaProc) {
+		return fmt.Errorf("SecPoint agent not found")
 	}
 
 	return nil

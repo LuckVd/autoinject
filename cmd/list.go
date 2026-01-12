@@ -96,25 +96,20 @@ func printTable(procs []*detector.JavaProcess) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
 	// 表头
-	fmt.Fprintln(w, "PID\tUser\tMain Class/JAR\tAgents")
+	fmt.Fprintln(w, "PID\tUser\tMemory\tCPU%\tThreads\tFDs\tMain Class/JAR\tAgent")
 
 	// 数据行
 	green := color.New(color.FgGreen).SprintFunc()
 	red := color.New(color.FgRed).SprintFunc()
 
 	for _, proc := range procs {
-		agentStatus := red("✗ None")
+		// Agent 状态
+		agentStatus := red("✗")
 		if len(proc.Agents) > 0 {
-			agentStr := ""
-			for i, agent := range proc.Agents {
-				if i > 0 {
-					agentStr += ", "
-				}
-				agentStr += green("✓ ") + agent.Path
-			}
-			agentStatus = agentStr
+			agentStatus = green("✓")
 		}
 
+		// 主类/JAR 文件
 		main := proc.MainClass
 		if proc.JarFile != "" {
 			main = proc.JarFile
@@ -123,16 +118,43 @@ func printTable(procs []*detector.JavaProcess) {
 			main = "unknown"
 		}
 
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n",
+		// 格式化内存
+		memStr := formatMemory(proc.MemoryRSS)
+
+		fmt.Fprintf(w, "%d\t%s\t%s\t%.1f\t%d\t%d\t%s\t%s\n",
 			proc.PID,
 			proc.User,
-			truncate(main, 30),
+			memStr,
+			proc.CPUPercent,
+			proc.Threads,
+			proc.OpenFDs,
+			truncate(main, 25),
 			agentStatus)
 	}
 
 	w.Flush()
 
 	fmt.Printf("\nTotal: %d Java process(es)\n", len(procs))
+}
+
+// formatMemory 格式化内存大小
+func formatMemory(bytes uint64) string {
+	const (
+		KB = 1024
+		MB = 1024 * KB
+		GB = 1024 * MB
+	)
+
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.1fG", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.1fM", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.1fK", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
 }
 
 // printJSON 打印 JSON 格式

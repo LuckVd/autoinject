@@ -18,51 +18,22 @@ func (m *Menu) showInjectMenu() {
 	m.printHeader()
 
 	fmt.Println()
-	color.Cyan("                     Agent 注入")
+	color.Cyan("                  SecPoint Agent 注入")
 	fmt.Println()
 
-	// 显示可用的 Agent
-	fmt.Println("可用的 Agent:")
-	configAgents := m.config.GetEnabledAgents()
-	if len(configAgents) == 0 {
-		color.Yellow("  没有启用的 Agent，请先在配置中启用")
+	// 输入 SecPoint.jar 路径
+	secPointPath := m.readInput("请输入 SecPoint.jar 路径: ")
+	if secPointPath == "" {
+		color.Red("路径不能为空")
 		m.pause()
 		return
 	}
-
-	// 转换为 detector.Agent
-	var agents []detector.Agent
-	for _, cfgAgent := range configAgents {
-		agents = append(agents, detector.Agent{
-			Path:    cfgAgent.Path,
-			Options: cfgAgent.Options,
-		})
-	}
-
-	for i, agent := range configAgents {
-		color.Green("  %d. %s", i+1, agent.Name)
-		fmt.Printf("     路径: %s\n", agent.Path)
-		if agent.Options != "" {
-			fmt.Printf("     选项: %s\n", agent.Options)
-		}
-		fmt.Println()
-	}
-
-	// 选择 Agent
-	agentIndex, err := m.readIntInput("选择 Agent (输入序号): ")
-	if err != nil || agentIndex < 1 || agentIndex > len(configAgents) {
-		color.Red("无效的选择")
-		m.pause()
-		return
-	}
-
-	selectedAgent := agents[agentIndex-1]
 
 	fmt.Println()
 	// 选择目标进程
 	fmt.Println("选择目标进程:")
 	fmt.Println("  1. 指定 PID")
-	fmt.Println("  2. 所有未注入的进程")
+	fmt.Println("  2. 所有未注入 SecPoint 的进程")
 
 	choice := m.readInput("请选择 [1-2]: ")
 
@@ -94,14 +65,9 @@ func (m *Menu) showInjectMenu() {
 		}
 
 	case "2":
-		// 所有未注入的进程
-		agentList := []detector.Agent{{
-			Path:    selectedAgent.Path,
-			Options: selectedAgent.Options,
-		}}
-
+		// 所有未注入 SecPoint 的进程
 		for _, proc := range allProcs {
-			if m.injector.NeedsInject(proc, agentList) {
+			if m.injector.NeedsInject(proc) {
 				targetProcs = append(targetProcs, proc)
 			}
 		}
@@ -122,16 +88,27 @@ func (m *Menu) showInjectMenu() {
 	fmt.Println()
 	color.Cyan("目标进程:")
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PID\tUser\tMain Class/JAR")
+	fmt.Fprintln(w, "PID\tUser\tMain Class/JAR\t\tSecPoint")
+
+	green := color.New(color.FgGreen).SprintFunc()
+	red := color.New(color.FgRed).SprintFunc()
+
 	for _, proc := range targetProcs {
 		main := proc.MainClass
 		if proc.JarFile != "" {
 			main = proc.JarFile
 		}
-		fmt.Fprintf(w, "%d\t%s\t%s\n", proc.PID, proc.User, main)
+
+		secPointStatus := red("✗")
+		if len(proc.Agents) > 0 {
+			secPointStatus = green("✓")
+		}
+
+		fmt.Fprintf(w, "%d\t%s\t%s\t\t%s\n", proc.PID, proc.User, main, secPointStatus)
 	}
 	w.Flush()
 
+	fmt.Printf("\nSecPoint Agent: %s\n", secPointPath)
 	fmt.Println()
 	confirm := m.readInput("确认注入? (y/N): ")
 	if confirm != "y" && confirm != "Y" {
@@ -144,12 +121,7 @@ func (m *Menu) showInjectMenu() {
 	fmt.Println()
 	color.Cyan("开始注入...")
 
-	agentList := []detector.Agent{{
-		Path:    selectedAgent.Path,
-		Options: selectedAgent.Options,
-	}}
-
-	results := m.injector.BatchInject(ctx, targetProcs, agentList)
+	results := m.injector.BatchInject(ctx, targetProcs, secPointPath)
 
 	// 显示结果
 	fmt.Println()
